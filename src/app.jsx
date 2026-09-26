@@ -1,6 +1,6 @@
 import { useEffect } from 'preact/hooks';
 import { focusTile, mode, multiview, paletteOpen, paletteSeed, settingsOpen, statsOpen, step, toast, zen } from './state.js';
-import { CloseIcon, GearIcon, SearchIcon } from './components/icons.jsx';
+import { CloseIcon, GearIcon, RadioIcon, SearchIcon, StarIcon, TvIcon } from './components/icons.jsx';
 import { useState } from 'preact/hooks';
 import { lazyComponent } from './lazy.js';
 
@@ -13,9 +13,9 @@ import { RadioPanel } from './components/RadioPanel.jsx';
 import { SavedPanel } from './components/SavedPanel.jsx';
 
 const TABS = [
-  { id: 'tv', label: 'TV' },
-  { id: 'radio', label: 'Radio' },
-  { id: 'saved', label: 'Saved' },
+  { id: 'tv', label: 'TV', Icon: TvIcon },
+  { id: 'radio', label: 'Radio', Icon: RadioIcon },
+  { id: 'saved', label: 'Saved', Icon: StarIcon },
 ];
 
 const isTyping = (el) => el && (el.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName));
@@ -134,14 +134,6 @@ export function App({ canPlayHls }) {
           <span class="wordmark">wisp</span>
         </a>
         </h1>
-        <nav class="tabs" aria-label="Sections">
-          {TABS.map((tab) => (
-            <button key={tab.id} type="button" class="tab" aria-current={mode.value === tab.id ? 'page' : undefined}
-              onClick={() => (mode.value = tab.id)}>
-              {tab.label}
-            </button>
-          ))}
-        </nav>
         <button type="button" class="jump" onClick={() => (paletteOpen.value = true)} aria-keyshortcuts="Control+K Meta+K"
           aria-label="Jump to a channel, station or action">
           <SearchIcon />
@@ -161,6 +153,17 @@ export function App({ canPlayHls }) {
 
       <main class="layout">
         <Player />
+        {/* The switch sits with the list it changes: above it on wide screens,
+            as a bottom tab bar on phones. */}
+        <nav class="tabs" aria-label="Sections">
+          {TABS.map(({ id, label, Icon }) => (
+            <button key={id} type="button" class="tab" aria-current={mode.value === id ? 'page' : undefined}
+              onClick={() => (mode.value = id)}>
+              <Icon filled={mode.value === id} />
+              <span>{label}</span>
+            </button>
+          ))}
+        </nav>
         <aside class="sidebar" aria-label={TABS.find((t) => t.id === mode.value).label}>
           <Panel />
         </aside>

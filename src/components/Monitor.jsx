@@ -84,6 +84,7 @@ export function Monitor() {
       )}
 
       <StageOverlay item={item} state={state} message={message} detail={detail} audioMode={audioMode} />
+      {item && !audioMode && <ChannelOsd key={item.id} item={item} />}
 
       {/* Transport controls only make sense once there's something to control. */}
       {item && (audioMode ? state !== 'error' : ['playing', 'paused', 'buffering'].includes(state)) && (
@@ -200,15 +201,27 @@ function TestCard({ scanning = false }) {
   );
 }
 
+/**
+ * The channel number and name, keyed on in the corner for a few seconds after
+ * a channel change, like a TV's own on-screen display. Decorative: the lower
+ * third already says the same thing to assistive tech.
+ */
+function ChannelOsd({ item }) {
+  return (
+    <div class="osd" aria-hidden="true">
+      {item.number && <span class="osd-num">{String(item.number).padStart(3, '0')}</span>}
+      <span class="osd-name">{item.name}</span>
+    </div>
+  );
+}
+
 function StageOverlay({ item, state, message, detail, audioMode }) {
   if (!item) {
+    // The blue screen a set shows when nothing is coming in.
     return (
-      <div class="overlay">
-        <TestCard />
-        <div class="slate">
-          <p class="slate-title">No signal</p>
-          <p class="slate-text">Open a playlist or a stream link, or pick a radio station.</p>
-        </div>
+      <div class="overlay no-signal">
+        <p class="osd-tag">No signal</p>
+        <p class="no-signal-text">Open a playlist or a stream link, or pick a radio station.</p>
       </div>
     );
   }

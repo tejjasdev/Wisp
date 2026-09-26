@@ -65,6 +65,7 @@ export function Controls({ state, audioMode }) {
         max="1"
         step="0.05"
         value={media.muted ? 0 : media.volume}
+        style={{ '--fill': `${(media.muted ? 0 : media.volume) * 100}%` }}
         aria-label="Volume"
         onInput={(e) => setVolume(Number(e.currentTarget.value))}
       />
@@ -80,6 +81,7 @@ export function Controls({ state, audioMode }) {
             max={media.duration || 0}
             step="1"
             value={media.time}
+            style={{ '--fill': `${media.duration ? (media.time / media.duration) * 100 : 0}%` }}
             aria-label="Seek"
             aria-valuetext={`${formatTime(media.time)} of ${formatTime(media.duration || 0)}`}
             onInput={(e) => active.media && (active.media.currentTime = Number(e.currentTarget.value))}

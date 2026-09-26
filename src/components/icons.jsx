@@ -61,6 +61,12 @@ export const PlusIcon = () => (
 export const GearIcon = () => (
   <Svg><path d="M4 7h9M17 7h3M4 17h3M11 17h9" /><circle cx="15" cy="7" r="2" /><circle cx="9" cy="17" r="2" /></Svg>
 );
+export const TvIcon = () => (
+  <Svg><rect x="3" y="6" width="18" height="12.5" rx="2" /><path d="M8.5 21h7M9 2.5l3 3.5 3-3.5" /></Svg>
+);
+export const RadioIcon = () => (
+  <Svg><rect x="3" y="8" width="18" height="12" rx="2" /><path d="M7 8l9.5-4.5" /><circle cx="15.5" cy="14" r="2.6" /><path d="M6.5 12.5h3M6.5 15.5h3" /></Svg>
+);
 export const GuideIcon = () => (
   <Svg><rect x="3.5" y="4.5" width="17" height="15" rx="1.5" /><path d="M3.5 9h17M9 9v10.5" /></Svg>
 );

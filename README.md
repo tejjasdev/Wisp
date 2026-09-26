@@ -126,7 +126,7 @@ lib/epg.worker.js         streams, un-gzips and scans XMLTV guides off the main 
 
 ### Design
 
-Wisp is laid out like a broadcast control room. The program monitor is the one bold element: a test card when there's no signal, a scan line while tuning, and a lower third with the channel number, name and on-air tally. Everything else stays quiet. The palette, type (Archivo and Archivo Narrow, self-hosted) and motion rules are described at the top of [`src/styles.css`](src/styles.css).
+Wisp looks like a TV set's own on-screen display. The monitor is the one bold element: the blue "no signal" screen, the channel number keyed into the corner when you change channel, test bars and a scan line while tuning, and a lower third with the channel number, name and on-air tally. Everything around it stays quiet, apart from the list cursor, a solid blue bar like a TV menu's. On phones the section tabs become a bottom bar and settings open as a bottom sheet. The palette, type (Saira Condensed and Atkinson Hyperlegible Next, self-hosted) and motion rules are described at the top of [`src/styles.css`](src/styles.css).
 
 ### Not included
 
