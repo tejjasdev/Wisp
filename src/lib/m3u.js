@@ -15,6 +15,22 @@ import { cleanText, safeUrl } from './sanitize.js';
 export const MAX_CHANNELS = 50000;
 export const UNGROUPED = 'Other';
 
+/**
+ * A channel's name without the decoration lists add to variants of the same
+ * channel: "BBC One HD (1080p) [Geo-blocked]" → "bbc one". Used to find backup
+ * sources for a channel and to match guide entries by name.
+ */
+export function baseName(name) {
+  return name
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '')
+    .toLowerCase()
+    .replace(/\([^)]*\)|\[[^\]]*\]/g, ' ')
+    .replace(/\b(hd|fhd|uhd|sd|4k|8k|hevc|h\.?26[45]|\d{3,4}[pi]|backup|alt|mirror|feed|low|high)\b/g, ' ')
+    .replace(/[^\p{L}\p{N}+]+/gu, ' ')
+    .trim();
+}
+
 /** True if the text is an HLS master/media playlist (a stream, not a channel list). */
 export function isHlsPlaylist(text) {
   return /^#EXT-X-(TARGETDURATION|STREAM-INF|MEDIA-SEQUENCE|MEDIA:)/m.test(text.slice(0, 20000));
@@ -22,7 +38,7 @@ export function isHlsPlaylist(text) {
 
 /** True if the text looks like an M3U channel list. */
 export function looksLikeM3u(text) {
-  const head = text.slice(0, 4000).replace(/^﻿/, '').trimStart();
+  const head = text.slice(0, 4000).replace(/^\uFEFF/, '').trimStart();
   return head.startsWith('#EXTM3U') || /^#EXTINF:/m.test(head);
 }
 
@@ -95,7 +111,7 @@ function nameFromUrl(url) {
  * Parses playlist text into channels.
  * @param {string} text   Raw playlist text.
  * @param {string} [base] URL the playlist was loaded from, for relative entries.
- * @returns {{ channels: Channel[], groups: {name: string, count: number}[] }}
+ * @returns {{ channels: Channel[], groups: {name: string, count: number}[], epgUrls: string[] }}
  *
  * @typedef {object} Channel
  * @property {string} id       Stable id (used for favorites / recents).
@@ -107,8 +123,9 @@ function nameFromUrl(url) {
  * @property {Record<string,string>} headers
  */
 export function parseM3u(text, base) {
-  const lines = text.replace(/^﻿/, '').split(/\r?\n/);
+  const lines = text.replace(/^\uFEFF/, '').split(/\r?\n/);
   const channels = [];
+  const epgUrls = [];
   const groupCounts = new Map();
   const seen = new Set();
   let pending = null;
@@ -118,12 +135,20 @@ export function parseM3u(text, base) {
     if (!line) continue;
 
     if (line.startsWith('#')) {
-      if (/^#EXTINF:/i.test(line)) {
+      if (/^#EXTM3U/i.test(line)) {
+        // Guide location(s) in the header: x-tvg-url="a.xml.gz,b.xml" (or url-tvg=).
+        const { attrs } = parseExtinf(`#EXTM3U:${line.slice(7)},`);
+        for (const u of (attrs['x-tvg-url'] || attrs['url-tvg'] || '').split(',')) {
+          const epg = safeUrl(u, { base });
+          if (epg && !epgUrls.includes(epg)) epgUrls.push(epg);
+        }
+      } else if (/^#EXTINF:/i.test(line)) {
         const { attrs, title } = parseExtinf(line);
         pending = {
           name: cleanText(title) || cleanText(attrs['tvg-name']),
           logo: attrs['tvg-logo'] || attrs['logo'] || '',
           group: attrs['group-title'] || '',
+          tvgId: cleanText(attrs['tvg-id'], 120),
           headers: {},
         };
         if (attrs['user-agent']) pending.headers['User-Agent'] = attrs['user-agent'];
@@ -166,15 +191,18 @@ export function parseM3u(text, base) {
       if (value) headers[cleanText(k, 60)] = value;
     }
 
-    channels.push({
+    const channel = {
       id,
       kind: 'tv',
+      number: channels.length + 1, // position in the playlist, shown like a channel number
       name: entry.name || cleanText(nameFromUrl(url)) || 'Untitled',
       url,
       logo: safeUrl(entry.logo, { base, allowImageData: true }),
       groups,
       headers,
-    });
+    };
+    if (entry.tvgId) channel.tvgId = entry.tvgId;
+    channels.push(channel);
     for (const g of groups) groupCounts.set(g, (groupCounts.get(g) ?? 0) + 1);
 
     if (channels.length >= MAX_CHANNELS) break;
@@ -186,5 +214,5 @@ export function parseM3u(text, base) {
       a.name === UNGROUPED ? 1 : b.name === UNGROUPED ? -1 : a.name.localeCompare(b.name),
     );
 
-  return { channels, groups };
+  return { channels, groups, epgUrls };
 }

@@ -16,8 +16,8 @@ export default defineConfig({
         name: 'Wisp',
         short_name: 'Wisp',
         description: 'A fast, lightweight player for HLS/IPTV playlists and internet radio.',
-        theme_color: '#10151c',
-        background_color: '#10151c',
+        theme_color: '#1c1b1e',
+        background_color: '#1c1b1e',
         display: 'standalone',
         start_url: '/',
         icons: [
@@ -27,9 +27,20 @@ export default defineConfig({
         ],
       },
       workbox: {
-        globPatterns: ['**/*.{js,css,html,svg,png,webmanifest}'],
+        // The Latin font files are precached (~47 KB) so text looks right offline
+        // from the first visit; other scripts' subsets are cached when first used.
+        globPatterns: ['**/*.{js,css,html,svg,png,webmanifest}', '**/*-latin-{wght,600}-normal-*.woff2'],
         navigateFallback: 'index.html',
         cleanupOutdatedCaches: true,
+        // Fonts are cached the first time a page uses them (only the scripts it
+        // needs), instead of precaching every subset up front.
+        runtimeCaching: [
+          {
+            urlPattern: ({ sameOrigin, url }) => sameOrigin && url.pathname.endsWith('.woff2'),
+            handler: 'CacheFirst',
+            options: { cacheName: 'fonts', expiration: { maxEntries: 20 } },
+          },
+        ],
       },
     }),
   ],

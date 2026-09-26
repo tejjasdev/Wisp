@@ -14,12 +14,19 @@ You're responsible for making sure you have the right to watch or listen to the 
 
 ## Features
 
-- **TV:** open an M3U/M3U8 playlist by link, by pasting its text, or from a file. Channels are grouped by category, searchable, and scroll smoothly even with 10,000+ entries.
+- **TV:** open an M3U/M3U8 playlist by link, by pasting its text, or from a file. Channels are grouped by category, numbered, searchable, and scroll smoothly even with 10,000+ entries.
 - **Direct links:** HLS streams (`.m3u8`) and video/audio files (`.mp4`, `.webm`, `.mp3`, …) play straight away.
-- **Radio:** search stations by name, country or genre.
-- **Favorites and recently played**, stored locally.
-- **Resume:** reopening Wisp picks up where you left off.
-- **Shareable links:** `?stream=<url>` opens and plays a stream, and a shared link always wins over resume.
+- **Smart detection:** one box takes a link or pasted playlist text. Wisp peeks at the first bytes of a link to see what it really is. The optional *Type* menu is only a hint: if it's wrong, Wisp tries the other ways of playing the link before giving up.
+- **Radio:** search more than 40,000 stations by name, country or genre.
+- **Programme guide (optional):** add an XMLTV guide (link, pasted XML, or a `.xml`/`.xml.gz` file) to see what's on now and next. If the playlist names a guide (`x-tvg-url`), Wisp offers it. Guides are parsed in a background worker and cached for 12 hours.
+- **Multiview:** watch up to four streams in a grid. The screen with the red tally frame has the sound. The others are muted and kept at their lowest quality to save bandwidth.
+- **Live stream stats:** resolution, stream bitrate, measured download speed, buffer and latency, with a one-minute graph of speed against bitrate.
+- **Command palette:** Ctrl K (⌘ K on a Mac) jumps to any channel, saved item or radio station, or runs an action.
+- **Backup sources:** when a playlist lists the same channel more than once, the other entries are tried automatically if the one you picked fails.
+- **Background data saver:** when Wisp's tab is hidden, the stream drops to its lowest quality. Sound keeps playing, and picture-in-picture counts as visible.
+- **Zen mode, picture-in-picture, snapshots, and touch gestures:** swipe up or down on the picture for volume (right side) or brightness (left side).
+- **Favorites and recently played**, plus export and import of everything as a JSON file, to move to another browser. There are no accounts.
+- **Resume and shareable links:** reopening Wisp picks up where you left off. `?stream=<url>` opens and plays a stream, and a shared link always wins over resume.
 - **Quality:** Auto (adaptive), or lock to Low / High.
 - **Installable app (PWA):** after the first visit, the app opens instantly, even offline.
 - **Lock-screen controls** through the Media Session API, including next and previous channel.
@@ -28,12 +35,21 @@ You're responsible for making sure you have the right to watch or listen to the 
 
 | Key | Action |
 | --- | --- |
+| Ctrl K / ⌘ K | Jump to a channel, station or action |
 | ↑ / ↓, Page Up / Page Down, Home / End | Move through the list |
 | Enter | Play the highlighted channel or station |
+| * | Add or remove the highlighted item as a favorite |
 | Space or K | Play / pause |
-| / | Search |
+| / | Search the list |
 | F | Fullscreen |
 | M | Mute |
+| I | Stream stats |
+| P | Picture-in-picture |
+| S | Snapshot of the picture |
+| G | Multiview on / off |
+| 1 – 4 | Listen to that multiview screen |
+| Z | Zen mode (↑ / ↓ change channel, Esc leaves) |
+| Page Up / Page Down (outside a list) | Previous / next channel |
 
 ## Try it
 
@@ -57,11 +73,12 @@ These links belong to third parties and may change or stop working.
 
 Wisp runs entirely in the browser with no proxy server. That keeps it free to host and simple to trust, but browsers enforce rules that native apps like VLC don't have to follow:
 
-- **CORS:** a stream's server has to allow playback from other websites. Many IPTV servers don't. If a *playlist* link is blocked, open it in a new tab, copy its text, and use **Playlist text**, or download it and pick the file. The channels inside often play fine.
+- **CORS:** a stream's server has to allow playback from other websites. Many IPTV servers don't. If a *playlist* link is blocked, open it in a new tab, copy its text and paste it into the box, or download it and use **Choose file**. The channels inside often play fine.
 - **Mixed content:** secure (`https://`) pages can't load `http://` streams. Wisp automatically tries the `https://` version first, and explains the problem if there isn't one.
 - **Custom headers:** some playlists ask for a specific `User-Agent` or `Referer` (`#EXTVLCOPT:http-user-agent=…`). Browsers don't let websites set those headers, so such channels only work in native players. Wisp does send any other custom headers a playlist specifies. It also never sends a `Referer` of its own, because many CDNs block foreign referrers but allow none.
 - **Formats:** raw MPEG-TS (`.ts`) channels, MPEG-DASH (`.mpd`) and DRM-protected streams aren't supported.
-- **Geo-blocking and dead links:** Wisp says so quickly instead of spinning forever. Streams that don't start within 15 seconds show a clear message with **Try again**.
+- **Geo-blocking and dead links:** Wisp says so quickly instead of spinning forever. It tries each way of playing a link (and any backup sources) in turn, and shows a clear message with **Try again** within 30 seconds at most.
+- **Programme guides** are subject to the same CORS rule. If a guide link is blocked, download the file and choose it, or paste its XML.
 
 ## Development
 
@@ -83,28 +100,40 @@ npm run preview   # serve the production build locally
 
 ```
 input (link, pasted text, file, ?stream=)
-  └─ lib/source.js       what is it? channel list, HLS stream or plain file
-       ├─ lib/m3u.js     parse and sanitize the playlist → channels + groups
-       └─ state.js       signals: playlist, current item, status, favorites …
-            └─ components/Player.jsx → lib/player.js
+  └─ lib/source.js        what is it? peeks at the first bytes: channel list, HLS, video, audio
+       ├─ lib/m3u.js      parse and sanitize the playlist → channels, groups, guide link
+       └─ state.js        signals: playlist, current item, status, favorites, multiview …
+            └─ playback.js (usePlayback hook) → lib/player.js
+                 tries each source × engine in turn:
                  ├─ hls.js (loaded on first play)
                  ├─ native HLS (older iOS Safari)
                  └─ native <video>/<audio> (files and most radio streams)
+lib/epg.worker.js         streams, un-gzips and scans XMLTV guides off the main thread
 ```
 
-- **Stack:** [Preact](https://preactjs.com) with [signals](https://preactjs.com/guide/v10/signals/), [hls.js](https://github.com/video-dev/hls.js) and [Vite](https://vitejs.dev). The app shell is about 22 KB gzipped, with no CSS framework and no web fonts.
-- **Fast first paint:** hls.js (about 180 KB gzipped) is only downloaded when something plays. The service worker then caches it in the background, so later visits never wait for it.
+- **Stack:** [Preact](https://preactjs.com) with [signals](https://preactjs.com/guide/v10/signals/), [hls.js](https://github.com/video-dev/hls.js) and [Vite](https://vitejs.dev). No CSS framework.
+- **Fast first paint:** the app shell is about 33 KB of gzipped JavaScript. hls.js (about 180 KB) loads only when something plays. Stats, multiview, the command palette, the guide and settings are separate chunks of 1–3 KB each, loaded when first used; the palette is fetched while the browser is idle. The service worker caches all of it, so later visits start instantly.
 - **Built for poor connections:**
   - Small forward buffer (20 s) and back buffer (30 s), so long live sessions don't keep growing in memory.
   - Short load timeouts with few retries.
   - Quality steps down quickly and steps up cautiously.
   - The first quality guess comes from the Network Information API where the browser provides it, and data saver or 2G starts at the lowest quality.
   - Resolution is capped to the player's size.
-- **Large playlists:** the list is virtualized, so only visible rows exist in the page. Logos load lazily, and broken ones are remembered so they aren't requested again.
-- **Untrusted data:** everything from playlists and the radio directory is treated as hostile. Text is stripped of control characters and rendered as text, never as HTML. Only `http(s)` links are accepted. A strict Content Security Policy is set on deploy.
-- **Graceful failure:** loading states always show the channel's logo or initials. Errors say what went wrong (offline, CORS, 403/404, unsupported format, http-on-https) and offer **Try again** or **Next channel**.
+  - Muted multiview screens and hidden tabs only ever download the lowest quality.
+- **Large playlists and guides:** the list is virtualized, so only visible rows exist in the page. Logos load lazily, and broken ones are remembered. XMLTV guides of tens of megabytes are parsed in a worker (about 2 seconds for 47 MB) without blocking the page.
+- **Untrusted data:** everything from playlists, guides, the radio directory and imported settings files is treated as hostile. Text is stripped of control characters and rendered as text, never as HTML. Only `http(s)` links are accepted. A strict Content Security Policy is set on deploy.
+- **Graceful failure:** errors say what went wrong (offline, CORS, 403/404, unsupported format, raw MPEG-TS, a web page instead of a stream, http-on-https) and offer **Try again** or **Next channel**.
 
-Not in v1, but the code is set up for them: MPEG-DASH (a second engine behind `lib/player.js`), EPG, casting, and audio/subtitle track menus.
+### Design
+
+Wisp is laid out like a broadcast control room. The program monitor is the one bold element: a test card when there's no signal, a scan line while tuning, and a lower third with the channel number, name and on-air tally. Everything else stays quiet. The palette, type (Archivo and Archivo Narrow, self-hosted) and motion rules are described at the top of [`src/styles.css`](src/styles.css).
+
+### Not included
+
+- **MPEG-DASH (`.mpd`)** would need a second engine; it would slot in next to hls.js in `lib/player.js`'s try-chain.
+- **Raw MPEG-TS** channels would need [mpegts.js](https://github.com/xqq/mpegts.js).
+- **Casting (Chromecast/AirPlay)** and **audio/subtitle track menus** are also left out.
+- There is no built-in channel directory, by design.
 
 ## License
 

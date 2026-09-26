@@ -6,7 +6,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 
 const OVERSCAN = 6;
 
-export function VirtualList({ items, rowHeight, renderRow, onSelect, label, initialIndex = -1, listRef, id }) {
+export function VirtualList({ items, rowHeight, renderRow, onSelect, label, initialIndex = -1, listRef, id, keys = {} }) {
   const scroller = useRef(null);
   const [scrollTop, setScrollTop] = useState(0);
   const [viewport, setViewport] = useState(600);
@@ -51,7 +51,7 @@ export function VirtualList({ items, rowHeight, renderRow, onSelect, label, init
 
   const onKeyDown = (event) => {
     const page = Math.max(1, Math.floor(viewport / rowHeight) - 1);
-    const keys = {
+    const actions = {
       ArrowDown: () => moveTo(active + 1),
       ArrowUp: () => moveTo(active - 1),
       PageDown: () => moveTo(active + page),
@@ -60,9 +60,13 @@ export function VirtualList({ items, rowHeight, renderRow, onSelect, label, init
       End: () => moveTo(items.length - 1),
       Enter: () => items[active] && onSelect(items[active], active),
     };
-    if (keys[event.key]) {
+    // Extra per-item keys from the caller (e.g. "*" to toggle favorite).
+    for (const [key, handler] of Object.entries(keys)) {
+      actions[key] = () => items[active] && handler(items[active]);
+    }
+    if (actions[event.key]) {
       event.preventDefault();
-      keys[event.key]();
+      actions[event.key]();
     }
   };
 

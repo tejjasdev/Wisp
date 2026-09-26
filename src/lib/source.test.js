@@ -36,3 +36,39 @@ describe('sanitize', () => {
     expect(cleanText(42)).toBe('');
   });
 });
+
+import { sniffBytes } from './source.js';
+
+describe('sniffBytes', () => {
+  const bytes = (...parts) =>
+    Uint8Array.from(parts.flatMap((p) => (typeof p === 'string' ? [...p].map((c) => c.charCodeAt(0)) : p)));
+
+  it('recognizes media containers by their magic numbers', () => {
+    expect(sniffBytes(bytes([0, 0, 0, 0x20], 'ftypisom'))).toBe('video');
+    expect(sniffBytes(bytes([0x1a, 0x45, 0xdf, 0xa3, 1, 2]))).toBe('video');
+    expect(sniffBytes(bytes('ID3', [4, 0, 0]))).toBe('audio');
+    expect(sniffBytes(bytes('OggS', [0]))).toBe('audio');
+    expect(sniffBytes(bytes([0xff, 0xfb, 0x90, 0x64]))).toBe('audio'); // MP3 frame
+    expect(sniffBytes(bytes([0xff, 0xf1, 0x50, 0x80]))).toBe('audio'); // AAC ADTS
+  });
+
+  it('recognizes raw MPEG-TS by its 188-byte packet sync', () => {
+    const ts = new Uint8Array(376);
+    ts[0] = 0x47;
+    ts[188] = 0x47;
+    expect(sniffBytes(ts)).toBe('ts');
+    expect(sniffBytes(bytes('Great news'))).toBe('unknown'); // a lone "G" isn't enough
+  });
+
+  it('recognizes playlists and web pages from text', () => {
+    expect(sniffBytes(new TextEncoder().encode('\uFEFF#EXTM3U\n#EXT-X-VERSION:3'))).toBe('m3u'); // UTF-8 BOM
+    expect(sniffBytes(bytes('  <!DOCTYPE html><html>'))).toBe('html');
+  });
+
+  it('falls back to the Content-Type header', () => {
+    expect(sniffBytes(bytes('????'), 'application/vnd.apple.mpegurl')).toBe('m3u');
+    expect(sniffBytes(bytes('????'), 'audio/aacp')).toBe('audio');
+    expect(sniffBytes(bytes('????'), 'video/mp2t')).toBe('ts');
+    expect(sniffBytes(bytes('????'), 'application/octet-stream')).toBe('unknown');
+  });
+});

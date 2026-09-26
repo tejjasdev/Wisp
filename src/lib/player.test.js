@@ -68,3 +68,29 @@ describe('buildHlsConfig', () => {
     expect(xhr.setRequestHeader).toHaveBeenCalledWith('X-Token', 'abc');
   });
 });
+
+import { buildAttempts, engineOrder } from './player.js';
+
+describe('engineOrder / buildAttempts', () => {
+  it('tries the preferred engine first but always keeps the other', () => {
+    expect(engineOrder({ url: 'https://a.example/x.mp4', prefer: 'hls' })).toEqual(['hls', 'native']);
+    expect(engineOrder({ url: 'https://a.example/live.m3u8', prefer: 'native' })).toEqual(['native', 'hls']);
+  });
+
+  it('guesses from the URL and item kind when there is no preference', () => {
+    expect(engineOrder({ url: 'https://a.example/live.m3u8' })).toEqual(['hls', 'native']);
+    expect(engineOrder({ url: 'https://a.example/clip.webm' })).toEqual(['native', 'hls']);
+    expect(engineOrder({ url: 'https://a.example/stream', kind: 'tv' })).toEqual(['hls', 'native']);
+    expect(engineOrder({ url: 'https://a.example/stream', kind: 'radio' })).toEqual(['native', 'hls']);
+    expect(engineOrder({ url: 'https://a.example/stream', kind: 'radio', hls: true })).toEqual(['hls', 'native']);
+  });
+
+  it('lists the main source first, then up to three backups', () => {
+    const attempts = buildAttempts({
+      url: 'https://a.example/1.m3u8',
+      alternates: ['2', '3', '4', '5'].map((n) => ({ url: `https://a.example/${n}.m3u8`, headers: {} })),
+    });
+    expect(attempts).toHaveLength(8);
+    expect(attempts.map((a) => `${a.sourceIndex}:${a.engine}`).slice(0, 3)).toEqual(['0:hls', '0:native', '1:hls']);
+  });
+});

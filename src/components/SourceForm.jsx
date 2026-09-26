@@ -6,29 +6,47 @@ import { playlist, showSourceForm } from '../state.js';
 // pasting the playlist's contents is the way around those.
 const PASTE_HELPS = ['blocked', 'timeout', 'http', 'network', 'mixed'];
 
+const HINTS = [
+  { value: 'auto', label: 'Detect automatically' },
+  { value: 'playlist', label: 'Channel playlist (M3U)' },
+  { value: 'hls', label: 'HLS stream (.m3u8)' },
+  { value: 'video', label: 'Video file' },
+  { value: 'audio', label: 'Audio stream' },
+];
+
 // Autofocus on desktop only; on phones it would pop up the keyboard unasked.
 const focusOnOpen = typeof matchMedia !== 'undefined' && matchMedia('(pointer: fine)').matches;
 
+/**
+ * One field for everything: a link, or pasted playlist text. The type menu is
+ * only a hint — Wisp checks what the link really is and tries other ways of
+ * playing it if the hint turns out to be wrong.
+ */
 export function SourceForm() {
-  const [tab, setTab] = useState(showSourceForm.value === 'paste' ? 'paste' : 'link');
-  const [link, setLink] = useState('');
-  const [text, setText] = useState('');
+  const [value, setValue] = useState('');
+  const [hint, setHint] = useState('auto');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
+  const field = useRef(null);
   const fileInput = useRef(null);
+  const multiline = value.includes('\n');
 
   // "Paste playlist text" from the player's error screen.
   useEffect(() => {
-    if (showSourceForm.value === 'paste') setTab('paste');
+    if (showSourceForm.value === 'paste') {
+      setError(null);
+      field.current?.focus();
+    }
   }, [showSourceForm.value]);
 
   const submit = async (event) => {
-    event.preventDefault();
+    event?.preventDefault();
+    if (!value.trim() || busy) return;
     setBusy(true);
     setError(null);
     try {
-      const result = await openInput(tab === 'link' ? link : text);
-      if (result === 'stream') setLink('');
+      const result = await openInput(value, { hint });
+      if (result === 'stream') setValue('');
     } catch (err) {
       setError(err);
     } finally {
@@ -48,75 +66,64 @@ export function SourceForm() {
     }
   };
 
-  const switchTab = (next) => {
-    setTab(next);
-    setError(null);
-  };
-
   return (
     <form class="source" onSubmit={submit}>
       <h2 class="panel-title">Open a playlist or stream</h2>
-      <p class="hint">
-        Paste a link to an M3U playlist, an HLS stream (.m3u8) or a video file. Everything stays in your browser.
+      <p class="hint" id="source-help">
+        Paste a link to an M3U playlist, an HLS stream or a media file — or paste the playlist's text itself.
+        Everything stays in your browser.
       </p>
 
-      <div class="segmented" role="group" aria-label="Input type">
-        <button type="button" aria-pressed={tab === 'link'} onClick={() => switchTab('link')}>Link</button>
-        <button type="button" aria-pressed={tab === 'paste'} onClick={() => switchTab('paste')}>Playlist text</button>
-      </div>
+      <textarea
+        ref={field}
+        class={multiline ? 'field source-input is-multiline' : 'field source-input'}
+        rows={multiline ? 7 : 1}
+        spellcheck={false}
+        autoComplete="off"
+        autoCapitalize="off"
+        placeholder="https://example.com/playlist.m3u"
+        aria-label="Playlist or stream link, or playlist text"
+        aria-describedby="source-help"
+        value={value}
+        onInput={(e) => setValue(e.currentTarget.value)}
+        onKeyDown={(e) => {
+          // Enter opens a single link; in pasted playlist text it's a newline.
+          if (e.key === 'Enter' && !e.shiftKey && !multiline) {
+            e.preventDefault();
+            submit();
+          }
+        }}
+        autoFocus={focusOnOpen}
+      />
 
-      {tab === 'link' ? (
-        <input
-          class="field"
-          type="url"
-          inputMode="url"
-          autoComplete="off"
-          spellcheck={false}
-          placeholder="https://example.com/playlist.m3u"
-          aria-label="Playlist or stream link"
-          value={link}
-          onInput={(e) => setLink(e.currentTarget.value)}
-          autoFocus={focusOnOpen}
-        />
-      ) : (
-        <>
-          <textarea
-            class="field"
-            rows={7}
-            spellcheck={false}
-            placeholder={'#EXTM3U\n#EXTINF:-1 group-title="News",Channel name\nhttps://example.com/stream.m3u8'}
-            aria-label="Playlist text"
-            value={text}
-            onInput={(e) => setText(e.currentTarget.value)}
-            autoFocus={focusOnOpen}
-          />
-          <button type="button" class="text-btn" onClick={() => fileInput.current.click()}>
-            Or choose a .m3u file from your device
-          </button>
-          <input ref={fileInput} type="file" accept=".m3u,.m3u8,audio/x-mpegurl,application/vnd.apple.mpegurl,text/plain" hidden onChange={openFile} />
-        </>
-      )}
+      <label class="hint-select">
+        <span>Type</span>
+        <select class="field select" value={hint} onChange={(e) => setHint(e.currentTarget.value)}>
+          {HINTS.map((h) => (
+            <option key={h.value} value={h.value}>{h.label}</option>
+          ))}
+        </select>
+      </label>
 
       {error && (
         <div class="form-error" role="alert">
           <p>{error.message}</p>
-          {tab === 'link' && PASTE_HELPS.includes(error.code) && (
-            <p>
-              If it's a playlist, open the link in a new tab, copy all of its text, and{' '}
-              <button type="button" class="text-btn inline" onClick={() => switchTab('paste')}>paste it here</button>.
-            </p>
+          {!multiline && PASTE_HELPS.includes(error.code) && (
+            <p>If it's a playlist, open the link in a new tab, copy all of its text, and paste it into the box above.</p>
           )}
         </div>
       )}
 
       <div class="form-actions">
-        <button type="submit" class="btn primary" disabled={busy || !(tab === 'link' ? link : text).trim()}>
+        <button type="submit" class="btn primary" disabled={busy || !value.trim()}>
           {busy ? 'Opening…' : 'Open'}
         </button>
+        <button type="button" class="btn" onClick={() => fileInput.current.click()}>Choose file</button>
         {playlist.value && (
-          <button type="button" class="btn" onClick={() => (showSourceForm.value = false)}>Cancel</button>
+          <button type="button" class="btn quiet" onClick={() => (showSourceForm.value = false)}>Cancel</button>
         )}
       </div>
+      <input ref={fileInput} type="file" accept=".m3u,.m3u8,audio/x-mpegurl,application/vnd.apple.mpegurl,text/plain" hidden onChange={openFile} />
     </form>
   );
 }

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'preact/hooks';
 import { listCountries, listTags, searchStations } from '../lib/radio-browser.js';
 import { load, save } from '../lib/storage.js';
 import { current, playItem } from '../state.js';
-import { ItemRow } from './ItemRow.jsx';
+import { FAVORITE_KEY, ItemRow } from './ItemRow.jsx';
 import { ROW_HEIGHT, SearchField } from './SearchField.jsx';
 import { VirtualList } from './VirtualList.jsx';
 
@@ -104,6 +104,7 @@ export function RadioPanel() {
           listRef={listRef}
           onSelect={(item) => playItem(item, { list: stations })}
           renderRow={(item) => <ItemRow item={item} />}
+          keys={FAVORITE_KEY}
         />
       ) : (
         <p class="empty">No stations found. Try a different name, country or genre.</p>

@@ -1,6 +1,6 @@
 import { useState } from 'preact/hooks';
 import { clearRecents, current, favorites, playItem, recents } from '../state.js';
-import { ItemRow } from './ItemRow.jsx';
+import { FAVORITE_KEY, ItemRow } from './ItemRow.jsx';
 import { ROW_HEIGHT } from './SearchField.jsx';
 import { VirtualList } from './VirtualList.jsx';
 
@@ -34,11 +34,12 @@ export function SavedPanel() {
           initialIndex={initialIndex}
           onSelect={(item) => playItem(item, { list: items })}
           renderRow={(item) => <ItemRow item={item} />}
+          keys={FAVORITE_KEY}
         />
       ) : (
         <p class="empty">
           {view === 'favorites'
-            ? 'Tap the star on any channel or station to keep it here.'
+            ? 'Tap the star on any channel or station (or press * on it) to keep it here.'
             : 'Channels and stations you play will show up here.'}
         </p>
       )}

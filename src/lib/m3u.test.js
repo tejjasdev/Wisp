@@ -59,13 +59,13 @@ describe('parseM3u', () => {
   });
 
   it('handles CRLF, a BOM and bare URLs without #EXTINF', () => {
-    const result = parseM3u('﻿#EXTM3U\r\nhttps://a.example/live/cam.m3u8\r\n');
+    const result = parseM3u('\uFEFF#EXTM3U\r\nhttps://a.example/live/cam.m3u8\r\n');
     expect(result.channels).toHaveLength(1);
     expect(result.channels[0].name).toBe('cam.m3u8');
   });
 
   it('strips control and bidi characters from names', () => {
-    const result = parseM3u('#EXTINF:-1,Evil‮gnp.exe\u0007\nhttps://a.example/x.m3u8');
+    const result = parseM3u('#EXTINF:-1,Evil\u202Egnp.exe\u0007\nhttps://a.example/x.m3u8');
     expect(result.channels[0].name).toBe('Evil gnp.exe');
   });
 });
@@ -77,5 +77,24 @@ describe('playlist detection', () => {
     expect(isHlsPlaylist(SAMPLE)).toBe(false);
     expect(looksLikeM3u(SAMPLE)).toBe(true);
     expect(looksLikeM3u('<html>')).toBe(false);
+  });
+});
+
+import { baseName } from './m3u.js';
+
+describe('guide info and base names', () => {
+  it('reads the guide URL from the header and keeps tvg-id', () => {
+    const { channels, epgUrls } = parseM3u(
+      '#EXTM3U x-tvg-url="https://epg.example/a.xml.gz,https://epg.example/b.xml"\n#EXTINF:-1 tvg-id="DWEnglish.de@SD",DW\nhttps://a.example/dw.m3u8',
+    );
+    expect(epgUrls).toEqual(['https://epg.example/a.xml.gz', 'https://epg.example/b.xml']);
+    expect(channels[0].tvgId).toBe('DWEnglish.de@SD');
+  });
+
+  it('strips quality and status decoration from names', () => {
+    expect(baseName('BBC One HD (1080p) [Geo-blocked]')).toBe('bbc one');
+    expect(baseName('BBC One')).toBe('bbc one');
+    expect(baseName('Čt24 FHD')).toBe('ct24');
+    expect(baseName('ITV +1')).toBe('itv +1'); // a timeshift channel is a different channel
   });
 });

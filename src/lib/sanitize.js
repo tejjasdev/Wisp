@@ -5,7 +5,7 @@
 
 // C0/C1 control characters plus zero-width and bidi-override characters that
 // can be abused to spoof how a name looks.
-const INVISIBLE = /[\u0000-\u001F\u007F-\u009F​-‏‪-‮⁦-⁩﻿]/g;
+const INVISIBLE = /[\u0000-\u001F\u007F-\u009F\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/g;
 
 export function cleanText(value, maxLength = 200) {
   if (typeof value !== 'string') return '';
