@@ -112,10 +112,10 @@ if (typeof window !== 'undefined') setInterval(() => (clock.value = Date.now()),
 /** Short-lived message at the bottom of the screen. */
 export const toast = signal('');
 let toastTimer;
-export function showToast(message) {
+export function showToast(message, duration = 2600) {
   toast.value = message;
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => (toast.value = ''), 2600);
+  toastTimer = setTimeout(() => (toast.value = ''), duration);
 }
 
 // Only what's needed to play an item again later (not UI-only fields).

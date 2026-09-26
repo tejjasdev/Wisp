@@ -72,3 +72,50 @@ describe('sniffBytes', () => {
     expect(sniffBytes(bytes('????'), 'application/octet-stream')).toBe('unknown');
   });
 });
+
+import { afterEach, vi } from 'vitest';
+import { inspectUrl } from './source.js';
+
+describe('inspectUrl', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  // A fetch that never answers, but honours abort like the real one.
+  const hangingFetch = () =>
+    vi.fn((_url, { signal }) => new Promise((_resolve, reject) => {
+      signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')));
+    }));
+
+  it('gives up after 8 s with no answer, with a final "no-response" error', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal('fetch', hangingFetch());
+    const result = inspectUrl('https://a.example/live').catch((err) => err);
+    await vi.advanceTimersByTimeAsync(7900);
+    await vi.advanceTimersByTimeAsync(200);
+    const err = await result;
+    expect(err.code).toBe('no-response');
+  });
+
+  it('reports a failed request (usually CORS) as "blocked", which the player may still get around', async () => {
+    vi.stubGlobal('fetch', vi.fn(() => Promise.reject(new TypeError('Failed to fetch'))));
+    await expect(inspectUrl('https://a.example/live')).rejects.toMatchObject({ code: 'blocked' });
+  });
+
+  it('reads only the start of a media stream', async () => {
+    const cancel = vi.fn(() => Promise.resolve());
+    let reads = 0;
+    const reader = {
+      read: vi.fn(async () => {
+        reads++;
+        return { done: false, value: new Uint8Array(2048).fill(0).map((_, i) => (i === 0 ? 0xff : i === 1 ? 0xfb : 0)) };
+      }),
+      cancel,
+    };
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, headers: new Headers({ 'content-type': 'audio/mpeg' }), body: { getReader: () => reader } })));
+    await expect(inspectUrl('https://a.example/radio')).resolves.toMatchObject({ type: 'audio' });
+    expect(reads).toBe(1);
+    expect(cancel).toHaveBeenCalled();
+  });
+});

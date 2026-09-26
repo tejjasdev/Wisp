@@ -8,7 +8,8 @@ const VIDEO_FILE = /\.(mp4|m4v|webm|ogv|mov)$/i;
 const AUDIO_FILE = /\.(mp3|aac|m4a|ogg|oga|opus|flac|wav)$/i;
 
 const MAX_PLAYLIST_BYTES = 30 * 1024 * 1024;
-const PLAYLIST_TIMEOUT_MS = 20000;
+const PLAYLIST_TIMEOUT_MS = 20000; // the whole download (big playlists on slow links)
+const RESPONSE_TIMEOUT_MS = 8000; // the server's first answer; same limit the player uses for a manifest
 
 /** 'video-file' | 'audio-file' | 'hls' | 'playlist' | 'unknown' — based on the URL alone. */
 export function guessUrlType(url) {
@@ -90,12 +91,14 @@ export function sniffBytes(bytes, contentType = '') {
  * Resolves to { type, url, text? } where type is:
  *   'playlist' (a channel list; `text` holds it), 'hls', 'video', 'audio', or 'unknown'.
  * Rejects with a SourceError when the URL can't be read (CORS, network, HTTP
- * error) or is definitely not playable (web page, raw MPEG-TS, too large).
+ * error), the server doesn't answer at all ('no-response'), or it's definitely
+ * not playable (web page, raw MPEG-TS, too large).
  */
 export async function inspectUrl(url, { signal } = {}) {
   const requestUrl = upgradeUrl(url);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), PLAYLIST_TIMEOUT_MS);
+  const responseTimer = setTimeout(() => controller.abort(), RESPONSE_TIMEOUT_MS);
   signal?.addEventListener('abort', () => controller.abort());
 
   let response;
@@ -103,9 +106,11 @@ export async function inspectUrl(url, { signal } = {}) {
     response = await fetch(requestUrl, { signal: controller.signal, credentials: 'omit' });
   } catch (err) {
     clearTimeout(timer);
+    clearTimeout(responseTimer);
     if (signal?.aborted) throw err;
     if (controller.signal.aborted) {
-      throw new SourceError('timeout', 'The server took too long to respond.');
+      // Nothing came back at all. The player would wait on the same server, so this is final.
+      throw new SourceError('no-response', "The server didn't respond. It may be offline; try again later.");
     }
     throw new SourceError(
       isMixedContent(url) ? 'mixed' : 'blocked',
@@ -115,6 +120,7 @@ export async function inspectUrl(url, { signal } = {}) {
     );
   }
 
+  clearTimeout(responseTimer);
   if (!response.ok) {
     clearTimeout(timer);
     throw new SourceError('http', `The server answered with an error (${response.status}).`);

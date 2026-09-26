@@ -39,6 +39,8 @@ describe('buildHlsConfig', () => {
   it('uses conservative buffers and the worker', () => {
     const config = buildHlsConfig({ headers: {} }, 'auto');
     expect(config.enableWorker).toBe(true);
+    // The ESM build needs an explicit worker, or transmuxing runs on the main thread.
+    expect(config.workerPath).toMatch(/hls\.worker\.js/);
     expect(config.maxBufferLength).toBeLessThan(30);
     expect(config.backBufferLength).toBeLessThan(Infinity);
     expect(config.abrBandWidthUpFactor).toBeLessThan(config.abrBandWidthFactor);
@@ -58,6 +60,10 @@ describe('buildHlsConfig', () => {
     expect(buildHlsConfig({}, 'auto').startLevel).toBe(0);
     vi.unstubAllGlobals();
     expect(buildHlsConfig({}, 'low').startLevel).toBe(0);
+  });
+
+  it('asks a silent manifest only once, so a dead server fails fast', () => {
+    expect(buildHlsConfig({}, 'auto').manifestLoadPolicy.default.timeoutRetry.maxNumRetry).toBe(0);
   });
 
   it('only installs xhrSetup when there are headers a browser can send', () => {

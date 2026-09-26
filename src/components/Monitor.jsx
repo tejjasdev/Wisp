@@ -3,7 +3,7 @@ import { signal } from '@preact/signals';
 import { usePlayback } from '../playback.js';
 import { countClick } from '../lib/radio-browser.js';
 import { lazyComponent } from '../lazy.js';
-import { autoStarted, current, mode, queue, retryToken, showSourceForm, showToast, statsOpen, step } from '../state.js';
+import { autoStarted, current, mode, playlist, queue, retryToken, showSourceForm, showToast, statsOpen, step } from '../state.js';
 import { toggleFullscreen, togglePlay } from '../playerActions.js';
 import { Controls } from './Controls.jsx';
 import { Logo } from './Logo.jsx';
@@ -221,7 +221,11 @@ function StageOverlay({ item, state, message, detail, audioMode }) {
     return (
       <div class="overlay no-signal">
         <p class="osd-tag">No signal</p>
-        <p class="no-signal-text">Open a playlist or a stream link, or pick a radio station.</p>
+        <p class="no-signal-text">
+          {playlist.value || mode.value !== 'tv'
+            ? 'Pick a channel or station from the list.'
+            : 'Open a playlist or a stream link, or pick a radio station.'}
+        </p>
       </div>
     );
   }

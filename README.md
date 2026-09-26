@@ -4,6 +4,11 @@ A fast, lightweight player for HLS / IPTV playlists and internet radio that runs
 
 Paste an M3U playlist or a stream link and Wisp shows the channels, grouped and searchable, and plays them with adaptive streaming tuned for slow and unstable connections. Switch to **Radio** to browse more than 40,000 internet radio stations from the free [Radio Browser](https://www.radio-browser.info) directory.
 
+<p>
+  <img src="docs/screenshot-desktop.webp" alt="Wisp on a desktop: the channel list on the left, Big Buck Bunny playing on the right with the channel number 001 keyed into the corner, and a lower third naming the channel with an on-air light." width="640">
+  <img src="docs/screenshot-phone.webp" alt="Wisp on a phone: the player at the top, the channel list below it, and TV, Radio and Saved tabs along the bottom." width="190">
+</p>
+
 ## What Wisp is, and what it isn't
 
 - **Wisp is a generic media player**, in the same spirit as VLC. It plays links that *you* provide.
@@ -77,12 +82,12 @@ Wisp runs entirely in the browser with no proxy server. That keeps it free to ho
 - **Mixed content:** secure (`https://`) pages can't load `http://` streams. Wisp automatically tries the `https://` version first, and explains the problem if there isn't one.
 - **Custom headers:** some playlists ask for a specific `User-Agent` or `Referer` (`#EXTVLCOPT:http-user-agent=…`). Browsers don't let websites set those headers, so such channels only work in native players. Wisp does send any other custom headers a playlist specifies. It also never sends a `Referer` of its own, because many CDNs block foreign referrers but allow none.
 - **Formats:** raw MPEG-TS (`.ts`) channels, MPEG-DASH (`.mpd`) and DRM-protected streams aren't supported.
-- **Geo-blocking and dead links:** Wisp says so quickly instead of spinning forever. It tries each way of playing a link (and any backup sources) in turn, and shows a clear message with **Try again** within 30 seconds at most.
+- **Geo-blocking and dead links:** Wisp says so quickly instead of spinning forever. It tries each way of playing a link (and any backup sources) in turn, and shows a clear message with **Try again** within 30 seconds at most. A server that doesn't answer at all is given up on after 8 seconds.
 - **Programme guides** are subject to the same CORS rule. If a guide link is blocked, download the file and choose it, or paste its XML.
 
 ## Development
 
-Requires Node.js 20 or newer.
+Requires Node.js 22.12 or newer.
 
 ```sh
 npm install
@@ -105,14 +110,15 @@ input (link, pasted text, file, ?stream=)
        └─ state.js        signals: playlist, current item, status, favorites, multiview …
             └─ playback.js (usePlayback hook) → lib/player.js
                  tries each source × engine in turn:
-                 ├─ hls.js (loaded on first play)
+                 ├─ hls.js (fetched once a playlist is open; transmuxes in a worker)
                  ├─ native HLS (older iOS Safari)
                  └─ native <video>/<audio> (files and most radio streams)
 lib/epg.worker.js         streams, un-gzips and scans XMLTV guides off the main thread
 ```
 
 - **Stack:** [Preact](https://preactjs.com) with [signals](https://preactjs.com/guide/v10/signals/), [hls.js](https://github.com/video-dev/hls.js) and [Vite](https://vitejs.dev). No CSS framework.
-- **Fast first paint:** the app shell is about 33 KB of gzipped JavaScript. hls.js (about 180 KB) loads only when something plays. Stats, multiview, the command palette, the guide and settings are separate chunks of 1–3 KB each, loaded when first used; the palette is fetched while the browser is idle. The service worker caches all of it, so later visits start instantly.
+- **Fast first paint:** the app shell is about 33 KB of gzipped JavaScript. hls.js (about 180 KB) is never part of it: it's fetched while the browser is idle once a playlist is open, or alongside the link check when you paste a stream, so it's usually ready before the first channel starts. Its transmuxer runs in a Web Worker (one shared by every multiview screen), keeping the page responsive. Stats, multiview, the command palette, the guide and settings are separate chunks of 1–3 KB each, loaded when first used; the palette is fetched while the browser is idle. The service worker caches all of it, so later visits start instantly.
+- **Quick to start:** a pasted link's first bytes are checked to see what it is, while hls.js loads in parallel. The answer is remembered for the session, so opening it again skips the check. Channels from a playlist aren't checked at all; they start straight away. If the check is blocked by CORS, the browser's own player goes first, since hls.js would be blocked too.
 - **Built for poor connections:**
   - Small forward buffer (20 s) and back buffer (30 s), so long live sessions don't keep growing in memory.
   - Short load timeouts with few retries.

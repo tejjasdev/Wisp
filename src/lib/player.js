@@ -7,6 +7,10 @@
 
 import { networkHints } from './network.js';
 import { guessUrlType, isMixedContent, upgradeUrl } from './source.js';
+// The ESM build of hls.js (what bundlers pick) doesn't inline its transmuxer
+// worker: without `workerPath`, transmuxing silently runs on the main thread.
+// This ships the matching worker as a same-origin asset.
+import hlsWorkerUrl from 'hls.js/dist/hls.worker.js?url';
 
 const ATTEMPT_TIMEOUT_MS = 12000; // one way of playing one source gets this long to show a frame
 const CHAIN_TIMEOUT_MS = 30000; // everything together, before "unavailable" is shown
@@ -16,9 +20,21 @@ const MAX_SOURCES = 4;
 
 let hlsPromise;
 export function loadHls() {
-  hlsPromise ??= import('hls.js').then((module) => module.default);
-  hlsPromise.catch(() => (hlsPromise = undefined)); // allow a retry after going offline
+  if (!hlsPromise) {
+    hlsPromise = import('hls.js').then((module) => module.default);
+    hlsPromise.catch(() => (hlsPromise = undefined)); // allow a retry after going offline
+    // hls.js only asks for its worker once the first fragment arrives; fetch it
+    // alongside the library so it's already cached by then.
+    fetch(hlsWorkerUrl).catch(() => {});
+  }
   return hlsPromise;
+}
+
+/** Fetches hls.js while the browser is idle, ahead of a likely first play (a playlist is open). */
+export function warmHls() {
+  if (hlsPromise || typeof window === 'undefined') return;
+  const idle = window.requestIdleCallback ?? ((callback) => setTimeout(callback, 1000));
+  idle(() => loadHls().catch(() => {}));
 }
 
 // Headers a web page is not allowed to set (Fetch spec forbidden names, plus
@@ -56,7 +72,8 @@ export function buildHlsConfig(item, quality, { lowPower = false } = {}) {
   });
 
   const config = {
-    enableWorker: true, // transmux off the main thread
+    enableWorker: true, // transmux off the main thread (one worker, shared by every multiview tile)
+    workerPath: hlsWorkerUrl,
     lowLatencyMode: false, // LL-HLS makes many tiny requests; standard latency is sturdier on bad links
     liveDurationInfinity: true, // live streams report duration = Infinity, like Safari's native player
     // Buffer ~20 s ahead instead of 30 s (and never balloon to 600 s), and keep
@@ -74,8 +91,10 @@ export function buildHlsConfig(item, quality, { lowPower = false } = {}) {
     abrBandWidthUpFactor: 0.6, // step up later than default (0.7)
     abrEwmaSlowLive: 12,
     abrEwmaSlowVoD: 12,
+    // A manifest that gets no answer in 8 s isn't retried: the server is down,
+    // and a second wait would only delay the backup source or the error.
     manifestLoadPolicy: {
-      default: { maxTimeToFirstByteMs: 8000, maxLoadTimeMs: 12000, timeoutRetry: retry(1, 0, 0), errorRetry: retry(1) },
+      default: { maxTimeToFirstByteMs: 8000, maxLoadTimeMs: 12000, timeoutRetry: retry(0, 0, 0), errorRetry: retry(1) },
     },
     playlistLoadPolicy: {
       default: { maxTimeToFirstByteMs: 8000, maxLoadTimeMs: 12000, timeoutRetry: retry(2, 0, 0), errorRetry: retry(2) },
@@ -130,6 +149,8 @@ function networkMessage(code, source, mixed) {
   if (code >= 500) return specific(`The stream's server is having trouble (${code}).`);
   return generic(`Couldn't connect. The stream may be offline, or its server doesn't allow playback from other websites (CORS).${headerNote}`);
 }
+
+const NO_RESPONSE = specific("The stream's server didn't respond. It may be offline.");
 
 const NATIVE_ERRORS = {
   1: 'Playback was stopped.',
@@ -224,6 +245,15 @@ export function startPlayback(
     if (!bestError || message.rank > bestError.rank) bestError = message;
   };
 
+  /**
+   * The server sent nothing at all. Asking it again with the other engine would
+   * just wait out another timeout, so move straight on to the next source.
+   */
+  const giveUpOnSource = (message) => {
+    while (attempts[index + 1]?.sourceIndex === attempt.sourceIndex) index++;
+    next(message);
+  };
+
   /** Give up on the current attempt and move on to the next one. */
   const next = (message) => {
     if (destroyed || failed) return;
@@ -243,10 +273,12 @@ export function startPlayback(
     attempt.mixed = mixed;
     onSource({ index: attempt.sourceIndex, url: attempt.source.url, engine: attempt.engine });
     report('loading', attempt.sourceIndex > 0 ? { detail: 'Trying a backup source…' } : {});
-    attemptTimer = setTimeout(
-      () => next(mixed ? specific(MIXED_MESSAGE) : generic("The stream didn't start in time. It may be offline or too slow right now.")),
-      ATTEMPT_TIMEOUT_MS,
-    );
+    attemptTimer = setTimeout(() => {
+      if (mixed) next(specific(MIXED_MESSAGE));
+      // The media element never got a single byte from the server.
+      else if (attempt.engine === 'native' && media.readyState === 0) giveUpOnSource(NO_RESPONSE);
+      else next(generic("The stream didn't start in time. It may be offline or too slow right now."));
+    }, ATTEMPT_TIMEOUT_MS);
     if (attempt.engine === 'hls') playWithHls(attempt);
     else playNative(attempt);
   };
@@ -364,6 +396,10 @@ export function startPlayback(
       if (!data.fatal || hls !== instance) return;
       if (data.details === ErrorDetails.MANIFEST_PARSING_ERROR) {
         next(generic("This link isn't an HLS stream, or its format isn't supported by your browser."));
+        return;
+      }
+      if (data.details === ErrorDetails.MANIFEST_LOAD_TIMEOUT && !current.mixed) {
+        giveUpOnSource(NO_RESPONSE);
         return;
       }
       if (data.type === ErrorTypes.NETWORK_ERROR) {

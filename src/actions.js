@@ -7,9 +7,10 @@ import { makeBackup, mergeItems, parseBackup } from './lib/backup.js';
 import { cleanText, safeUrl } from './lib/sanitize.js';
 import { guessUrlType, inspectUrl, isPlaylistText, SourceError } from './lib/source.js';
 import { load, save } from './lib/storage.js';
+import { loadHls, warmHls } from './lib/player.js';
 import {
   backgroundSaver, channelGroup, channelQuery, favorites, guide, guideStatus, mode, playItem, playlist, quality,
-  recents, sanitizeItem, showSourceForm, statsOpen,
+  recents, sanitizeItem, showSourceForm, showToast, statsOpen,
 } from './state.js';
 
 // Big playlists are stored as a URL only; smaller ones keep their text so the
@@ -48,11 +49,17 @@ export function openPlaylistText(text, { url = '', name = '', reveal = true } = 
 
   const saved = { url, name: playlist.value.name };
   if (text.length > MAX_STORED_PLAYLIST_CHARS || !save('playlist', { ...saved, text })) save('playlist', saved);
+  // Someone with a channel list open is about to play a channel.
+  warmHls();
   return channels.length;
 }
 
 // The user's optional "type" hint → which playback engine to try first.
 const HINT_ENGINE = { hls: 'hls', video: 'native', audio: 'native' };
+
+// What each link turned out to be ('hls' | 'video' | 'audio' | 'unknown'), so
+// opening the same link again this session starts playing without re-checking.
+const detectedTypes = new Map();
 
 /**
  * Opens whatever the user entered. Resolves to 'playlist' or 'stream'.
@@ -83,29 +90,40 @@ export async function openInput(input, { name, hint = 'auto', audio = false, aut
   }
 
   const urlType = guessUrlType(url);
-  let detected = 'unknown';
-  try {
-    const result = await inspectUrl(url);
-    if (result.type === 'playlist') {
-      openPlaylistText(result.text, { url, name });
-      return 'playlist';
+  // The check below costs a round trip; fetch the HLS player at the same time
+  // when the link may well need it, so the two waits overlap.
+  if (hint === 'hls' || (hint === 'auto' && (urlType === 'hls' || urlType === 'unknown'))) loadHls().catch(() => {});
+
+  let detected = detectedTypes.get(url) ?? 'unknown';
+  let unreadable = false;
+  if (!detectedTypes.has(url)) {
+    try {
+      const result = await inspectUrl(url);
+      if (result.type === 'playlist') {
+        openPlaylistText(result.text, { url, name });
+        return 'playlist';
+      }
+      detected = result.type;
+      detectedTypes.set(url, detected);
+    } catch (err) {
+      // Definitive answers (a web page, raw MPEG-TS, too large, no answer at all) end here.
+      if (!(err instanceof SourceError) || ['ts', 'html', 'size', 'no-response'].includes(err.code)) throw err;
+      // An unreadable channel list is a dead end for the player too — the form
+      // offers the paste fallback. Anything else may still play: media elements
+      // don't need CORS, and Safari plays HLS natively.
+      if (hint === 'playlist' || (hint === 'auto' && urlType === 'playlist')) throw err;
+      unreadable = err.code === 'blocked';
     }
-    detected = result.type;
-  } catch (err) {
-    // Definitive answers (a web page, raw MPEG-TS, too large) end here.
-    if (!(err instanceof SourceError) || ['ts', 'html', 'size'].includes(err.code)) throw err;
-    // An unreadable channel list is a dead end for the player too — the form
-    // offers the paste fallback. Anything else may still play: media elements
-    // don't need CORS, and Safari plays HLS natively.
-    if (hint === 'playlist' || (hint === 'auto' && urlType === 'playlist')) throw err;
   }
 
   const isAudio =
     detected === 'audio' || (detected === 'unknown' && (hint === 'audio' || (hint === 'auto' && urlType === 'audio-file')));
+  // hls.js reads a stream the same way the check does, so when the check was
+  // blocked (usually CORS), the browser's own player is the one likely to work.
   const prefer =
     detected === 'hls' ? 'hls'
       : detected === 'video' || detected === 'audio' ? 'native'
-        : HINT_ENGINE[hint];
+        : HINT_ENGINE[hint] ?? (unreadable ? 'native' : undefined);
   playItem(streamItem(url, { name, audio: isAudio, prefer }), { auto });
   return 'stream';
 }
@@ -239,12 +257,19 @@ export async function start() {
   const restoring = playlistParam ? Promise.resolve() : restorePlaylist();
 
   if (playlistParam) {
-    openInput(playlistParam, { auto: true }).catch(() => (showSourceForm.value = true));
+    openInput(playlistParam, { auto: true }).catch((err) => {
+      showSourceForm.value = true;
+      showToast(`Couldn't open the shared playlist. ${err.message}`, 6000);
+    });
   }
 
   if (streamParam) {
     const audio = params.get('audio') === '1';
-    openInput(streamParam, { name: params.get('name') || '', audio, auto: true }).catch(() => {});
+    // A link that can't be played at all (dead server, web page, raw .ts) says so,
+    // instead of leaving an empty player.
+    openInput(streamParam, { name: params.get('name') || '', audio, auto: true }).catch((err) =>
+      showToast(`Couldn't open the shared link. ${err.message}`, 6000),
+    );
   } else {
     const last = sanitizeItem(load('last'));
     if (last) playItem(last, { auto: true });

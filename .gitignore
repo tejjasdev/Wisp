@@ -1,6 +1,21 @@
+# Dependencies and build output
 node_modules
 dist
 dev-dist
+coverage
+
+# Local environment (Wisp needs none, but keep secrets out if one appears)
+.env
+.env.*
+!.env.example
+
+# Logs, OS and editor files
 *.log
 .DS_Store
+Thumbs.db
+.idea
+.vscode/*
+!.vscode/extensions.json
+
+# Deploy tooling
 .vercel
