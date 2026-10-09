@@ -34,6 +34,8 @@ export function VirtualList({ items, rowHeight, renderRow, onSelect, label, init
     setScrollTop(top);
   }, [items]);
 
+  useEffect(() => () => cancelAnimationFrame(frame.current), []);
+
   const onScroll = () => {
     cancelAnimationFrame(frame.current);
     frame.current = requestAnimationFrame(() => setScrollTop(scroller.current.scrollTop));
