@@ -161,6 +161,8 @@ function GestureSurface({ videoRef, onTap }) {
     }
   };
 
+  useEffect(() => () => clearTimeout(hideTimer.current), []);
+
   const onPointerUp = () => {
     const d = drag.current;
     drag.current = null;
